@@ -114,16 +114,6 @@ class VideoConverter:
         return encoded_videos
 
 
-import musicsections
-
-# Load models
-model_deepsim = musicsections.load_deepsim_model(deepsim_model_folder)
-# Segment the audio
-segmentations, features = musicsections.segment_file(
-    audiofile, deepsim_model=model_deepsim
-)
-
-
 class MusicConverter:
     def __init__(self, deepsim_model_folder) -> None:
         self.model_deepsim = musicsections.load_deepsim_model(deepsim_model_folder)
