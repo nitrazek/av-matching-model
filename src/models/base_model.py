@@ -2,6 +2,9 @@ from typing import Any, Optional
 from torch import nn
 import torch
 import math
+import clip
+from PIL import Image
+import musicsections
 
 
 class VideoTransformer(nn.Module):
@@ -87,21 +90,52 @@ class MusicTransformer(nn.Module):
 
 
 class VideoConverter:
+    def __init__(self, clip_model_type: str = "ViT-B/32") -> None:
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model, self.preprocess = clip.load(clip_model_type, device=self.device)
+
     def __call__(
-        self, video, segment_length
+        self,
+        videos: list[list[Image.Image]],
+        segment_length: float,
+        framerate: int = 20,
     ) -> (
         Any
     ):  # input: [batch, video_size]; output: [batch, video_size / segment_length, our_emb_size]
-        pass
+        encoded_videos = []
+        for video in videos:
+            video_encodding = []
+            for frame in video:
+                image = preprocess(frame).unsqueeze(0).to(self.device)
+                with torch.no_grad():
+                    image_features = model.encode_image(image)
+                video_encodding.append(image_features)
+            encoded_videos.append(video_encodding)
+        return encoded_videos
+
+
+import musicsections
+
+# Load models
+model_deepsim = musicsections.load_deepsim_model(deepsim_model_folder)
+# Segment the audio
+segmentations, features = musicsections.segment_file(
+    audiofile, deepsim_model=model_deepsim
+)
 
 
 class MusicConverter:
+    def __init__(self, deepsim_model_folder) -> None:
+        self.model_deepsim = musicsections.load_deepsim_model(deepsim_model_folder)
+
     def __call__(
         self, music, segment_length
     ) -> (
         Any
     ):  # input: [batch, video_size]; output: [batch, video_size / segment_length, our_emb_size]
-        pass
+        segmentations, features = musicsections.segment_file(
+            music, deepsim_model=self.model_deepsim
+        )
 
 
 class MultiHeadAttention(nn.Module):
