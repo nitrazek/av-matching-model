@@ -106,9 +106,9 @@ class VideoConverter:
         for video in videos:
             video_encodding = []
             for frame in video:
-                image = preprocess(frame).unsqueeze(0).to(self.device)
+                image = self.preprocess(frame).unsqueeze(0).to(self.device)
                 with torch.no_grad():
-                    image_features = model.encode_image(image)
+                    image_features = self.model.encode_image(image)
                 video_encodding.append(image_features)
             encoded_videos.append(video_encodding)
         return encoded_videos
