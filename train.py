@@ -4,8 +4,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from src.dataset import base_dataset
-from src import models, utils
+from src import dataset, loss, models, utils
 
 
 @dataclass
@@ -47,7 +46,7 @@ def train(config: TrainConfig):
     video_transformer = models.VideoTransformer(num_layers=4, query_dim=embed_dim).to(device)
     video_converter = models.VideoConverter()
     
-    train_dataset = base_dataset.MusicVideoDataset()
+    train_dataset = dataset.MusicVideoDataset()
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=config.batch_size,
