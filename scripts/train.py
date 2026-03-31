@@ -12,6 +12,7 @@ class TrainConfig:
     batch_size: int = 32
     epochs: int = 10
     lr: float = 1e-4
+    segment_length: float = 5
 
 
 def train_one_epoch(
@@ -21,17 +22,31 @@ def train_one_epoch(
     video_converter: models.VideoConverter,
     train_dataloader: DataLoader,
     optimizer: optim.Optimizer,
-    device: torch.device
+    device: torch.device,
+    segment_length: float
 ):
     music_transformer.train()
     video_transformer.train()
     total_loss = 0.0
 
     for batch in train_dataloader:
-        ### POBIERZ DANE Z DATALOADERA ###
-        ### PRZERÓB DANE VIDEO NA FEATURE'Y PRZEZ VIDEOCONVERTER ###
-        ### PRZERÓB DANE MUZYCZNE NA FEATURE'Y PRZEZ MUSICCONVERTER ###
-        pass
+        music = batch['music'].to(device)
+        music_features = music_converter(music=music, segment_length=segment_length)
+
+        videos = batch['video'].to(device)
+        video_features = video_converter(videos=videos, segment_length=segment_length)
+
+        optimizer.zero_grad()
+
+        music_emb = music_transformer(music_features).mean(dim=1)
+        video_emb = video_transformer(video_features).mean(dim=1)
+
+        model_loss = loss.infonce_loss(music_emb=music_emb, video_emb=video_emb)
+        
+        model_loss.backward()
+        optimizer.step()
+
+        total_loss += model_loss.item()
 
     return total_loss / len(train_dataloader)
 
@@ -67,8 +82,10 @@ def train(config: TrainConfig):
             video_converter=video_converter,
             train_dataloader=train_dataloader,
             optimizer=optimizer,
-            device=device
+            device=device,
+            segment_length=config.segment_length
         )
+        print(f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}")
 
     torch.save({
         "music_transformer": music_transformer.state_dict(),
