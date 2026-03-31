@@ -4,7 +4,7 @@ import torch
 import math
 import clip
 from PIL import Image
-import musicsections
+from transformers import ClapModel, AutoProcessor
 
 
 class VideoTransformer(nn.Module):
@@ -19,7 +19,7 @@ class VideoTransformer(nn.Module):
         dropout: float = 0.1,
         use_causal_mask: bool = False,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.decoder_layers = nn.ModuleList(
@@ -60,7 +60,7 @@ class MusicTransformer(nn.Module):
         dropout: float = 0.1,
         use_causal_mask: bool = False,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.decoder_layers = nn.ModuleList(
@@ -115,17 +115,32 @@ class VideoConverter:
 
 
 class MusicConverter:
-    def __init__(self, deepsim_model_folder) -> None:
-        self.model_deepsim = musicsections.load_deepsim_model(deepsim_model_folder)
+    def __init__(self) -> None:
+        self._clap_model = ClapModel.from_pretrained("laion/clap-htsat-unfused")
+        self._clap_processor = AutoProcessor.from_pretrained("laion/clap-htsat-unfused")
 
     def __call__(
-        self, music, segment_length
+        self, music, segment_length, sampling_rate
     ) -> (
         Any
     ):  # input: [batch, video_size]; output: [batch, video_size / segment_length, our_emb_size]
-        segmentations, features = musicsections.segment_file(
-            music, deepsim_model=self.model_deepsim
-        )
+        encoded_music = []
+        for audio in music:
+            segments = self.segment_audio(audio, sampling_rate, segment_length)
+            processed_segemnts = self._clap_processor(
+                audios=segments, sampling_rate=sampling_rate, return_tensors="pt"
+            )
+            with torch.no_grad():
+                encoded_music.append(
+                    self._clap_model.get_audio_features(**processed_segemnts)
+                )
+
+    def segment_audio(audio, sampling_rate: int, segment_length: float):
+        samples_in_clip = int(sampling_rate * segment_length)
+        return [
+            audio[start : start + samples_in_clip]
+            for start in range(0, len(audio), samples_in_clip)
+        ]
 
 
 class MultiHeadAttention(nn.Module):
