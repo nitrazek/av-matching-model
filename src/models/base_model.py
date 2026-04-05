@@ -9,7 +9,7 @@ from transformers import ClapModel, AutoProcessor
 
 class EmbeddingWithProjection(nn.Module):
     def __init__(self, embedding_dimensions) -> None:
-        super().__init__(EmbeddingWithProjection, self)
+        super(EmbeddingWithProjection, self).__init__()
         self._embedding_dimensions = embedding_dimensions
         self.layernorm = nn.LayerNorm(embedding_dimensions)
 
