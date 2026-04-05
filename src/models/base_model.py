@@ -7,6 +7,40 @@ from PIL import Image
 from transformers import ClapModel, AutoProcessor
 
 
+class EmbeddingWithProjection(nn.Module):
+    def __init__(self, embedding_dimensions) -> None:
+        super().__init__(EmbeddingWithProjection, self)
+        self._embedding_dimensions = embedding_dimensions
+        self.layernorm = nn.LayerNorm(embedding_dimensions)
+
+    @staticmethod
+    def create_rotary_embeddings(self, seq_length, embedding_dimensions, batch_size):
+        pass
+
+    @staticmethod
+    def create_positional_encoding(seq_length, embedding_dimensions, batch_size):
+        position = torch.arange(seq_length).unsqueeze(1).float()
+
+        div_term = torch.exp(
+            torch.arange(0, embedding_dimensions, 2).float()
+            * (-math.log(10000.0) / embedding_dimensions)
+        )
+        pos_embedding = torch.zeros(seq_length, embedding_dimensions)
+        pos_embedding[:, 0::2] = torch.sin(position * div_term)
+        pos_embedding[:, 1::2] = torch.cos(position * div_term)
+
+        pos_embedding = pos_embedding.unsqueeze(0).expand(batch_size, -1, -1)
+
+        return pos_embedding
+
+    def forward(self, x):
+        batch_size, seq_length = x.size()
+        positional_encoding = self.create_positional_encoding(
+            seq_length, self._embedding_dimensions, batch_size
+        )
+        return self.layernorm(x + positional_encoding)
+
+
 class VideoTransformer(nn.Module):
     def __init__(
         self,
@@ -22,6 +56,7 @@ class VideoTransformer(nn.Module):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.embedding_with_projection = EmbeddingWithProjection(query_dim)
         self.decoder_layers = nn.ModuleList(
             [
                 DecoderLayer(
@@ -41,7 +76,7 @@ class VideoTransformer(nn.Module):
         self,
         video_clips: torch.Tensor,
     ):  # input: [batch, video_size, clip_emb_size]; output: [batch, video_size, our_emb_size]
-        dec_output = video_clips
+        dec_output = self.embedding_with_projection(video_clips)
         for dec_layer in self.decoder_layers:
             dec_output = dec_layer(dec_output)
 
@@ -63,6 +98,7 @@ class MusicTransformer(nn.Module):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.embedding_with_projection = EmbeddingWithProjection(query_dim)
         self.decoder_layers = nn.ModuleList(
             [
                 DecoderLayer(
@@ -82,7 +118,7 @@ class MusicTransformer(nn.Module):
         self,
         music_clips: torch.Tensor,
     ):  # input: [batch, video_size, clip_emb_size]; output: [batch, video_size, our_emb_size]
-        dec_output = music_clips
+        dec_output = self.embedding_with_projection(music_clips)
         for dec_layer in self.decoder_layers:
             dec_output = dec_layer(dec_output)
 
@@ -174,46 +210,58 @@ class MultiHeadAttention(nn.Module):
         self.W_v = nn.Linear(self.value_dim, self.embed_dim)
         self.W_o = nn.Linear(self.embed_dim, self.embed_dim)
 
+        self.output_projection = nn.Linear(self.embed_dim, query_dim)
+        self.attention_dropout = nn.Dropout(dropout)
+        self.output_dropout = nn.Dropout(dropout)
+
     def scaled_dot_product_attention(self, Q, K, V, mask=None):
         attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.head_dim)
         if mask is not None:
             attn_scores = attn_scores.masked_fill(mask == 0, -1e9)
         attn_probs = torch.softmax(attn_scores, dim=-1)
+        self.attention_dropout(attn_probs)
         output = torch.matmul(attn_probs, V)
         return output
 
     def split_heads(self, x):
-        batch_size, seq_length, d_model = x.size()
+        batch_size, seq_length, _ = x.size()
         return x.view(batch_size, seq_length, self.num_heads, self.head_dim).transpose(
             1, 2
         )
 
     def combine_heads(self, x):
-        batch_size, _, seq_length, d_k = x.size()
+        batch_size, _, seq_length, _ = x.size()
         return (
             x.transpose(1, 2).contiguous().view(batch_size, seq_length, self.embed_dim)
         )
 
-    def forward(self, Q, K=None, V=None, mask=None):
-        batch_size = Q.size(0)
-        query_len = Q.size(1)
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: Optional[torch.Tensor] = None,
+        value: Optional[torch.Tensor] = None,
+    ):
 
-        if K is None:
-            K = Q
-        if V is None:
-            V = K
+        if key is None:
+            key = query
+        if value is None:
+            value = key
 
-        key_len = K.size(1)
-        value_len = V.size(1)
+        key_len = key.size(1)
+        value_len = value.size(1)
 
         assert key_len == value_len, "Key and value must have same sequence length"
 
-        Q = self.split_heads(self.W_q(Q))
-        K = self.split_heads(self.W_k(K))
-        V = self.split_heads(self.W_v(V))
+        query = self.split_heads(self.W_q(query))
+        key = self.split_heads(self.W_k(key))
+        value = self.split_heads(self.W_v(value))
 
-        attn_output = self.scaled_dot_product_attention(Q, K, V, mask)
+        attn_output = self.scaled_dot_product_attention(query, key, value, None)
         output = self.W_o(self.combine_heads(attn_output))
+
+        output = self.output_projection(output)
+        output = self.output_dropout(output)
+
         return output
 
 
@@ -227,6 +275,7 @@ class DecoderLayer(nn.Module):
         num_heads: int = 8,
         dropout: float = 0.1,
         use_causal_mask: bool = False,
+        mlp_ratio: int = 4,
     ):
         super(DecoderLayer, self).__init__()
         self.self_attn = MultiHeadAttention(
@@ -239,23 +288,22 @@ class DecoderLayer(nn.Module):
             use_causal_mask,
         )
         embed_dim = embed_dim if embed_dim is not None else query_dim
-        self.cross_attn = MultiHeadAttention(
-            query_dim,
-            key_dim,
-            value_dim,
-            embed_dim,
-            num_heads,
-            dropout,
-            use_causal_mask,
+
+        mlp_hidden = query_dim * mlp_ratio
+        self.mlp = nn.Sequential(
+            nn.Linear(query_dim, mlp_hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_hidden, query_dim),
+            nn.Dropout(dropout),
         )
+
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
-        self.norm3 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         attn_output = self.self_attn(x)
         x = self.norm1(x + self.dropout(attn_output))
-        attn_output = self.cross_attn(x)
-        x = self.norm2(x + self.dropout(attn_output))
+        x = self.norm2(x + self.mlp(x))
         return x
