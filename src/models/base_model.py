@@ -34,7 +34,7 @@ class EmbeddingWithProjection(nn.Module):
         return pos_embedding
 
     def forward(self, x):
-        batch_size, seq_length = x.size()
+        batch_size, seq_length, _ = x.size()
         positional_encoding = self.create_positional_encoding(
             seq_length, self._embedding_dimensions, batch_size
         )
