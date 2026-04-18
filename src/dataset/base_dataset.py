@@ -25,14 +25,14 @@ class MusicVideoDataset(data.Dataset):
         for file in sorted(files_to_load):
             video_tensor, _, __ = v_io.read_video(file, pts_unit="sec")
             loaded_video.append(video_tensor)
-        return torch.tensor(loaded_video)
+        return torch.cat(loaded_video)
 
     def _load_audio(self, files_to_load):
         loaded_audio = []
         for file in sorted(files_to_load):
             audio_tensor, _ = torchaudio.load(file)
             loaded_audio.append(audio_tensor)
-        return torch.tensor(loaded_audio)
+        return torch.cat(loaded_audio)
 
     def __getitem__(self, index) -> Any:
         file_to_open = self._files_in_dataset[index]
