@@ -24,14 +24,18 @@ class MusicVideoDataset(data.Dataset):
         for file in sorted(files_to_load):
             video_tensor, _, __ = v_io.read_video(file, pts_unit="sec")
             loaded_video.append(video_tensor)
-        return torch.cat(loaded_video)
+        min_frames = min(t.shape[0] for t in loaded_video)
+        formatted_tensors = [t[:min_frames, ...] for t in loaded_video]
+        return torch.stack(formatted_tensors)
 
     def _load_audio(self, files_to_load):
         loaded_audio = []
         for file in sorted(files_to_load):
             audio_tensor, _ = torchaudio.load(file)
             loaded_audio.append(audio_tensor)
-        return torch.cat(loaded_audio)
+        min_frames = min(t.shape[0] for t in loaded_audio)
+        formatted_tensors = [t[:min_frames, ...] for t in loaded_audio]
+        return torch.stack(formatted_tensors)
 
     def __len__(self):
         return len(self._files_in_dataset)
