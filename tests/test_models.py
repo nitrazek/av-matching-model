@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 # Assuming your classes are in a file named models.py
-from src.models.base_model import (
+from scripts.src.models.base_model import (
     EmbeddingWithProjection,
     MultiHeadAttention,
     DecoderLayer,

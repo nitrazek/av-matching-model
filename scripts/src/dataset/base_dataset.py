@@ -7,7 +7,6 @@ import torchvision.io as v_io
 import torchaudio
 
 
-### WERSJA MOCK, DO WYMIANY ###
 class MusicVideoDataset(data.Dataset):
     def __init__(self, path_to_dataset: Path) -> None:
         super().__init__()
@@ -33,6 +32,9 @@ class MusicVideoDataset(data.Dataset):
             audio_tensor, _ = torchaudio.load(file)
             loaded_audio.append(audio_tensor)
         return torch.cat(loaded_audio)
+
+    def __len__(self):
+        return len(self._files_in_dataset)
 
     def __getitem__(self, index) -> Any:
         file_to_open = self._files_in_dataset[index]

@@ -1,10 +1,12 @@
+import pathlib
 from dataclasses import dataclass
 
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from src import dataset, loss, models, utils
+from src import dataset, loss, models
+from src import utils
 
 
 @dataclass
@@ -30,10 +32,8 @@ def train_one_epoch(
     total_loss = 0.0
 
     for batch in train_dataloader:
-        music = batch['music'].to(device)
+        videos, music = batch
         music_features = music_converter(music=music, segment_length=segment_length)
-
-        videos = batch['video'].to(device)
         video_features = video_converter(videos=videos, segment_length=segment_length)
 
         optimizer.zero_grad()
@@ -61,7 +61,7 @@ def train(config: TrainConfig):
     video_transformer = models.VideoTransformer(num_layers=4, query_dim=embed_dim).to(device)
     video_converter = models.VideoConverter()
     
-    train_dataset = dataset.MusicVideoDataset()
+    train_dataset = dataset.MusicVideoDataset(path_to_dataset=pathlib.Path("data", "splits", "train"))
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=config.batch_size,
@@ -69,7 +69,7 @@ def train(config: TrainConfig):
     )
     
     optimizer = optim.AdamW(
-        list(music_transformer.parameters() + video_transformer.parameters()),
+        list(music_transformer.parameters()) + list(video_transformer.parameters()),
         lr=config.lr,
         weight_decay=0.01
     )
