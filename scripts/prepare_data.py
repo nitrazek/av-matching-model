@@ -63,12 +63,6 @@ def parse_args() -> argparse.Namespace:
         help="Length of each aligned segment in seconds.",
     )
     parser.add_argument(
-        "--segments-per-pair",
-        type=int,
-        default=4,
-        help="How many random segments to generate from each matched pair.",
-    )
-    parser.add_argument(
         "--train-ratio",
         type=float,
         default=0.8,
@@ -108,8 +102,6 @@ def parse_args() -> argparse.Namespace:
 def validate_args(args: argparse.Namespace) -> None:
     if args.segment_length <= 0:
         raise ValueError("segment_length must be greater than 0.")
-    if args.segments_per_pair <= 0:
-        raise ValueError("segments_per_pair must be greater than 0.")
     if not 0.0 < args.train_ratio < 1.0:
         raise ValueError("train_ratio must be between 0 and 1.")
     if args.audio_sample_rate <= 0:
@@ -225,26 +217,14 @@ def probe_duration(path: Path) -> float:
 
 
 def build_segment_starts(
-    max_start: float,
-    segment_count: int,
-    rng: random.Random,
+    available_duration: float,
+    segment_length: float,
 ) -> list[float]:
-    if segment_count <= 0:
+    if segment_length <= 0 or available_duration < segment_length:
         return []
-    if max_start <= 0:
-        return [0.0] * segment_count
 
-    starts: list[float] = []
-    bin_width = max_start / segment_count
-    for index in range(segment_count):
-        bin_start = bin_width * index
-        bin_end = max_start if index == segment_count - 1 else bin_width * (index + 1)
-        if bin_end <= bin_start:
-            starts.append(bin_start)
-            continue
-        starts.append(rng.uniform(bin_start, bin_end))
-
-    return sorted(starts)
+    segment_count = int(available_duration // segment_length)
+    return [index * segment_length for index in range(segment_count)]
 
 
 def reset_output_dir(output_dir: Path, overwrite: bool) -> None:
@@ -324,10 +304,8 @@ def prepare_split(
     pairs: list[SourcePair],
     output_dir: Path,
     segment_length: float,
-    segments_per_pair: int,
     sample_rate: int,
     channels: int,
-    rng: random.Random,
 ) -> list[PreparedSample]:
     samples: list[PreparedSample] = []
     video_dir = output_dir / split / "videos"
@@ -337,20 +315,18 @@ def prepare_split(
         video_duration = probe_duration(pair.video_path)
         audio_duration = probe_duration(pair.audio_path)
         available_duration = min(video_duration, audio_duration)
-        usable_duration = available_duration - segment_length
 
-        if usable_duration < 0:
+        segment_starts = build_segment_starts(
+            available_duration=available_duration,
+            segment_length=segment_length,
+        )
+
+        if not segment_starts:
             print(
                 f"Skipping pair '{pair.pair_key}' because the shared duration "
                 f"({available_duration:.2f}s) is shorter than segment length ({segment_length:.2f}s)."
             )
             continue
-
-        segment_starts = build_segment_starts(
-            max_start=usable_duration,
-            segment_count=segments_per_pair,
-            rng=rng,
-        )
 
         for segment_index, start_time in enumerate(segment_starts):
             sample_id = f"{pair.pair_key}_{segment_index:03d}"
@@ -407,7 +383,6 @@ def write_summary(
         "raw_video_dir": str(args.raw_video_dir),
         "raw_audio_dir": str(args.raw_audio_dir),
         "segment_length": args.segment_length,
-        "segments_per_pair": args.segments_per_pair,
         "train_ratio": args.train_ratio,
         "audio_sample_rate": args.audio_sample_rate,
         "audio_channels": args.audio_channels,
@@ -447,10 +422,8 @@ def main() -> None:
             pairs=split_pairs_list,
             output_dir=args.output_dir,
             segment_length=args.segment_length,
-            segments_per_pair=args.segments_per_pair,
             sample_rate=args.audio_sample_rate,
             channels=args.audio_channels,
-            rng=rng,
         )
         samples_by_split[split] = split_samples
         write_manifest(
