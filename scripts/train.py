@@ -11,7 +11,7 @@ from src import utils
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 32
+    batch_size: int = 1
     epochs: int = 10
     lr: float = 1e-4
     segment_length: float = 5
@@ -32,9 +32,12 @@ def train_one_epoch(
     total_loss = 0.0
 
     for batch in train_dataloader:
-        videos, music = batch
-        music_features = music_converter(music=music, segment_length=segment_length)
-        video_features = video_converter(videos=videos, segment_length=segment_length)
+        video_segments, music_segments = batch
+        video_segments = video_segments.to(device)
+        music_segments = music_segments.to(device)
+        
+        music_features = music_converter(music_segments=music_segments)
+        video_features = video_converter(video_segments=video_segments)
 
         optimizer.zero_grad()
 

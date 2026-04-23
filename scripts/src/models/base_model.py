@@ -1,9 +1,11 @@
 from typing import Any, Optional
-from torch import nn
+
 import torch
+import torch.nn.functional as F
 import math
 import clip
 from PIL import Image
+from torch import nn
 from transformers import ClapModel, AutoProcessor
 
 
@@ -14,29 +16,24 @@ class EmbeddingWithProjection(nn.Module):
         self.layernorm = nn.LayerNorm(embedding_dimensions)
 
     @staticmethod
-    def create_rotary_embeddings(self, seq_length, embedding_dimensions, batch_size):
-        pass
-
-    @staticmethod
-    def create_positional_encoding(seq_length, embedding_dimensions, batch_size):
-        position = torch.arange(seq_length).unsqueeze(1).float()
+    def create_positional_encoding(seq_count, embedding_dimensions, batch_size, device):
+        position = torch.arange(seq_count, device=device).unsqueeze(1).float()
 
         div_term = torch.exp(
-            torch.arange(0, embedding_dimensions, 2).float()
+            torch.arange(0, embedding_dimensions, 2, device=device).float()
             * (-math.log(10000.0) / embedding_dimensions)
         )
-        pos_embedding = torch.zeros(seq_length, embedding_dimensions)
+        pos_embedding = torch.zeros(seq_count, embedding_dimensions, device=device)
         pos_embedding[:, 0::2] = torch.sin(position * div_term)
         pos_embedding[:, 1::2] = torch.cos(position * div_term)
-
         pos_embedding = pos_embedding.unsqueeze(0).expand(batch_size, -1, -1)
 
         return pos_embedding
 
     def forward(self, x):
-        batch_size, seq_length, _ = x.size()
+        batch_size, seq_count, _ = x.size()
         positional_encoding = self.create_positional_encoding(
-            seq_length, self._embedding_dimensions, batch_size
+            seq_count, self._embedding_dimensions, batch_size, device=x.device
         )
         return self.layernorm(x + positional_encoding)
 
@@ -132,51 +129,49 @@ class VideoConverter:
 
     def __call__(
         self,
-        videos: list[list[Image.Image]],
-        segment_length: float,
-        framerate: int = 20,
-    ) -> (
-        Any
-    ):  # input: [batch, video_size]; output: [batch, video_size / segment_length, our_emb_size]
-        encoded_videos = []
-        for video in videos:
-            video_encodding = []
-            for frame in video:
-                image = self.preprocess(frame).unsqueeze(0).to(self.device)
-                with torch.no_grad():
-                    image_features = self.model.encode_image(image)
-                video_encodding.append(image_features)
-            encoded_videos.append(video_encodding)
-        return encoded_videos
+        video_segments: torch.Tensor,
+        minibatch_size: int = 16,
+    ) -> torch.Tensor:
+        b, s, f, h, w, c = video_segments.shape
+        flat_frames = video_segments.view(-1, h, w, c).permute(0, 3, 1, 2).float()
+        all_embeddings = []
+
+        for i in range(0, flat_frames.size(0), minibatch_size):
+            batch = flat_frames[i : i + minibatch_size].to(self.device)
+            batch_resized = F.interpolate(batch, size=(224, 224), mode='bicubic', align_corners=False)
+            
+            mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).to(self.device).view(1, 3, 1, 1)
+            std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).to(self.device).view(1, 3, 1, 1)
+            batch_normalized = (batch_resized / 255.0 - mean) / std
+            
+            with torch.no_grad():
+                features = self.model.encode_image(batch_normalized)
+                all_embeddings.append(features.cpu())
+
+        frame_embeddings = torch.cat(all_embeddings, dim=0).view(b, s, f, -1)
+        video_embeddings = frame_embeddings.mean(dim=2)
+
+        return video_embeddings
 
 
 class MusicConverter:
     def __init__(self) -> None:
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._clap_model = ClapModel.from_pretrained("laion/clap-htsat-unfused")
         self._clap_processor = AutoProcessor.from_pretrained("laion/clap-htsat-unfused")
 
     def __call__(
-        self, music, segment_length, sampling_rate
-    ) -> (
-        Any
-    ):  # input: [batch, video_size]; output: [batch, video_size / segment_length, our_emb_size]
-        encoded_music = []
-        for audio in music:
-            segments = self.segment_audio(audio, sampling_rate, segment_length)
-            processed_segemnts = self._clap_processor(
-                audios=segments, sampling_rate=sampling_rate, return_tensors="pt"
-            )
-            with torch.no_grad():
-                encoded_music.append(
-                    self._clap_model.get_audio_features(**processed_segemnts)
-                )
+        self, music_segments: torch.Tensor, sampling_rate: int = 48000
+    ) -> torch.Tensor:
+        music_segments_shape = music_segments.shape
+        flat_audio = music_segments.squeeze(-2).view(-1, music_segments_shape[3]).cpu()
+        audio_list = [x.numpy() for x in flat_audio]
 
-    def segment_audio(audio, sampling_rate: int, segment_length: float):
-        samples_in_clip = int(sampling_rate * segment_length)
-        return [
-            audio[start : start + samples_in_clip]
-            for start in range(0, len(audio), samples_in_clip)
-        ]
+        inputs = self._clap_processor(audio=audio_list, return_tensors="pt", sampling_rate=sampling_rate, padding=True)
+        with torch.no_grad():
+            audio_features = self._clap_model.get_audio_features(**inputs)
+
+        return audio_features.pooler_output.view(music_segments_shape[0], music_segments_shape[1], -1).to(self.device)
 
 
 class MultiHeadAttention(nn.Module):
