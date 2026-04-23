@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from src import dataset, loss, models
 from src import utils
@@ -25,13 +26,15 @@ def train_one_epoch(
     train_dataloader: DataLoader,
     optimizer: optim.Optimizer,
     device: torch.device,
-    segment_length: float
+    epoch_idx: int = 0
 ):
     music_transformer.train()
     video_transformer.train()
     total_loss = 0.0
 
-    for batch in train_dataloader:
+    pbar = tqdm(enumerate(train_dataloader), total=len(train_dataloader), desc=f"Epoch {epoch_idx}")
+
+    for batch_idx, batch in pbar:
         video_segments, music_segments = batch
         video_segments = video_segments.to(device)
         music_segments = music_segments.to(device)
@@ -49,9 +52,15 @@ def train_one_epoch(
         model_loss.backward()
         optimizer.step()
 
-        total_loss += model_loss.item()
+        current_loss = model_loss.item()
+        total_loss += current_loss
 
-    return total_loss / len(train_dataloader)
+        pbar.set_postfix({"loss": f"{current_loss:.4f}", "avg_loss": f"{total_loss/(batch_idx+1):.4f}"})
+
+    avg_epoch_loss = total_loss / len(train_dataloader)
+    print(f"\n>>> Epoch {epoch_idx} Finished. Average Loss: {avg_epoch_loss:.4f}\n")
+
+    return avg_epoch_loss
 
 
 def train(config: TrainConfig):
@@ -86,7 +95,6 @@ def train(config: TrainConfig):
             train_dataloader=train_dataloader,
             optimizer=optimizer,
             device=device,
-            segment_length=config.segment_length
         )
         print(f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}")
 
