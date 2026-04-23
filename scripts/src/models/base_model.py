@@ -35,7 +35,8 @@ class EmbeddingWithProjection(nn.Module):
         positional_encoding = self.create_positional_encoding(
             seq_count, self._embedding_dimensions, batch_size, device=x.device
         )
-        return self.layernorm(x + positional_encoding)
+        positioned_x = x + positional_encoding
+        return self.layernorm(positioned_x)
 
 
 class VideoTransformer(nn.Module):
@@ -146,7 +147,7 @@ class VideoConverter:
             
             with torch.no_grad():
                 features = self.model.encode_image(batch_normalized)
-                all_embeddings.append(features.cpu())
+                all_embeddings.append(features)
 
         frame_embeddings = torch.cat(all_embeddings, dim=0).view(b, s, f, -1)
         video_embeddings = frame_embeddings.mean(dim=2)
