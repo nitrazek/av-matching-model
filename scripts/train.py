@@ -1,5 +1,6 @@
-import pathlib
+import datetime
 from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 import torch.optim as optim
@@ -73,7 +74,7 @@ def train(config: TrainConfig):
     video_transformer = models.VideoTransformer(num_layers=4, query_dim=embed_dim).to(device)
     video_converter = models.VideoConverter()
     
-    train_dataset = dataset.MusicVideoDataset(path_to_dataset=pathlib.Path("data", "splits", "train"))
+    train_dataset = dataset.MusicVideoDataset(path_to_dataset=Path("data", "splits", "train"))
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=config.batch_size,
@@ -98,10 +99,9 @@ def train(config: TrainConfig):
         )
         print(f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}")
 
-    torch.save({
-        "music_transformer": music_transformer.state_dict(),
-        "video_transformer": video_transformer.state_dict(),
-    })
+    current_timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    torch.save(music_transformer.state_dict(), Path("outputs", current_timestamp_str, "music_transformer.pth"))
+    torch.save(video_transformer.state_dict(), Path("outputs", current_timestamp_str, "video_transformer.pth"))
 
 
 if __name__ == "__main__":
