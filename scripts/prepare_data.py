@@ -7,7 +7,12 @@ import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-
+import glob
+from src import models
+import torch
+import torchvision.io as v_io
+from tqdm import tqdm
+import torchaudio
 
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
@@ -111,7 +116,9 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def ensure_ffmpeg_tools_available() -> None:
-    missing_tools = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
+    missing_tools = [
+        tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None
+    ]
     if missing_tools:
         joined = ", ".join(missing_tools)
         raise RuntimeError(f"Missing required system tools: {joined}.")
@@ -244,7 +251,9 @@ def reset_output_dir(output_dir: Path, overwrite: bool) -> None:
         (output_dir / split / "audio").mkdir(parents=True, exist_ok=True)
 
 
-def export_video_segment(source_path: Path, destination_path: Path, start_time: float, duration: float) -> None:
+def export_video_segment(
+    source_path: Path, destination_path: Path, start_time: float, duration: float
+) -> None:
     command = [
         "ffmpeg",
         "-y",
@@ -395,6 +404,43 @@ def write_summary(
         json.dump(summary, summary_file, indent=2)
 
 
+def encode_films(output_dir: Path):
+    # [1, 1, 120, 720, 1280, 3]
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    video_converter = models.VideoConverter()
+    for file_to_encode in tqdm(
+        glob.glob(str(output_dir / "**/*.mp4"), recursive=True),
+        desc="Encoding video chunks",
+    ):
+        file_to_save = file_to_encode[:-4]
+        video_tensor, _, __ = v_io.read_video(file_to_encode, pts_unit="sec")
+        video_features = video_converter(
+            video_segments=video_tensor.unsqueeze(0).unsqueeze(0).to(device)
+        )
+
+        torch.save(
+            video_features.squeeze(0).squeeze(0).detach().cpu(), file_to_save + ".pt"
+        )
+
+
+def encode_audios(output_dir: Path):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    music_converter = models.MusicConverter()
+    for file_to_encode in tqdm(
+        glob.glob(str(output_dir / "**/*.wav"), recursive=True),
+        desc="Encoding audio chunks",
+    ):
+        file_to_save = file_to_encode[:-4]
+        audio_tensor, _ = torchaudio.load(file_to_encode)
+        audio_features = music_converter(
+            music_segments=audio_tensor.unsqueeze(0).unsqueeze(0).to(device)
+        )
+
+        torch.save(
+            audio_features.squeeze(0).squeeze(0).detach().cpu(), file_to_save + ".pt"
+        )
+
+
 def main() -> None:
     args = parse_args()
     validate_args(args)
@@ -444,6 +490,8 @@ def main() -> None:
         f"{len(samples_by_split['val'])} validation samples."
     )
     print(f"Manifests written to: {args.output_dir / 'manifests'}")
+    encode_films(args.output_dir)
+    encode_audios(args.output_dir)
 
 
 if __name__ == "__main__":
