@@ -1,1 +1,1 @@
-from .base_dataset import MusicVideoDataset
+from .base_dataset import MusicVideoDataset, EncodedMusicVideoDataset
