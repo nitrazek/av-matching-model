@@ -14,7 +14,7 @@ from src import utils
 @dataclass
 class TrainConfig:
     batch_size: int = 1
-    epochs: int = 1
+    epochs: int = 10
     lr: float = 1e-4
     segment_length: float = 5
 
@@ -102,13 +102,15 @@ def train(config: TrainConfig):
         print(f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}")
 
     current_timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    output_dir = Path("outputs", current_timestamp_str)
+    output_dir.mkdir(parents=True, exist_ok=True)
     torch.save(
         music_transformer.state_dict(),
-        Path("outputs", current_timestamp_str, "music_transformer.pth"),
+        output_dir / "music_transformer.pth",
     )
     torch.save(
         video_transformer.state_dict(),
-        Path("outputs", current_timestamp_str, "video_transformer.pth"),
+        output_dir / "video_transformer.pth",
     )
 
 

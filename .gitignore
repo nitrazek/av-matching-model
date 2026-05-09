@@ -2,3 +2,5 @@
 .vscode/
 data/
 *.pyc
+*.pth
+*.pt
