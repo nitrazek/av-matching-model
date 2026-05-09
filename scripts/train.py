@@ -9,13 +9,15 @@ from tqdm import tqdm
 
 from src import dataset, loss, models
 from src import utils
+from torch.nn.utils.rnn import pad_sequence
+import numpy as np
 
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 1
-    epochs: int = 10
-    lr: float = 1e-4
+    batch_size: int = 40
+    epochs: int = 40
+    lr: float = 3e-4
     segment_length: float = 5
 
 
@@ -42,8 +44,18 @@ def train_one_epoch(
         music_features = music_features.to(device)
         optimizer.zero_grad()
 
-        music_emb = music_transformer(music_features).mean(dim=1)
-        video_emb = video_transformer(video_features).mean(dim=1)
+        video_mask = (video_features.abs().sum(dim=-1) != 0).float().unsqueeze(-1)
+        music_mask = (music_features.abs().sum(dim=-1) != 0).float().unsqueeze(-1)
+
+        music_out = music_transformer(music_features)
+        video_out = video_transformer(video_features)
+
+        music_emb = (music_out * music_mask).sum(dim=1) / music_mask.sum(dim=1).clamp(
+            min=1
+        )
+        video_emb = (video_out * video_mask).sum(dim=1) / video_mask.sum(dim=1).clamp(
+            min=1
+        )
 
         model_loss = loss.infonce_loss(music_emb=music_emb, video_emb=video_emb)
 
@@ -66,6 +78,16 @@ def train_one_epoch(
     return avg_epoch_loss
 
 
+def collate_fn(batch):
+    video_features = [item[0] for item in batch]
+    music_features = [item[1] for item in batch]
+
+    video_padded = pad_sequence(video_features, batch_first=True, padding_value=0.0)
+    music_padded = pad_sequence(music_features, batch_first=True, padding_value=0.0)
+
+    return video_padded, music_padded
+
+
 def train(config: TrainConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Detected device: {device}")
@@ -82,7 +104,10 @@ def train(config: TrainConfig):
     )
 
     train_dataloader = DataLoader(
-        dataset=train_dataset, batch_size=config.batch_size, shuffle=True
+        dataset=train_dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
     )
 
     optimizer = optim.AdamW(
@@ -91,6 +116,9 @@ def train(config: TrainConfig):
         weight_decay=0.01,
     )
 
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    losses_over_epochs = []
+
     for epoch in range(config.epochs):
         avg_loss = train_one_epoch(
             music_transformer=music_transformer,
@@ -98,7 +126,10 @@ def train(config: TrainConfig):
             train_dataloader=train_dataloader,
             optimizer=optimizer,
             device=device,
+            epoch_idx=epoch,
         )
+        losses_over_epochs.append(avg_loss)
+        scheduler.step()
         print(f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}")
 
     current_timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -112,6 +143,8 @@ def train(config: TrainConfig):
         video_transformer.state_dict(),
         output_dir / "video_transformer.pth",
     )
+    print(losses_over_epochs)
+    np.save(output_dir / "loss.npy", np.array(losses_over_epochs))
 
 
 if __name__ == "__main__":
