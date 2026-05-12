@@ -15,7 +15,7 @@ import numpy as np
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 40
+    batch_size: int = 20
     epochs: int = 40
     lr: float = 3e-4
     segment_length: float = 5
@@ -102,6 +102,16 @@ def train(config: TrainConfig):
     train_dataset = dataset.EncodedMusicVideoDataset(
         path_to_dataset=Path("data", "splits", "train")
     )
+    val_dataset = dataset.EncodedMusicVideoDataset(
+        path_to_dataset=Path("data", "splits", "val")
+    )
+
+    val_dataloader = DataLoader(
+        dataset=val_dataset,
+        batch_size=10,
+        shuffle=False,
+        collate_fn=collate_fn,
+    )
 
     train_dataloader = DataLoader(
         dataset=train_dataset,
@@ -130,7 +140,9 @@ def train(config: TrainConfig):
         )
         losses_over_epochs.append(avg_loss)
         scheduler.step()
-        print(f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}")
+        print(
+            f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}, Accuracy on Validation: {loss.get_accuracy(val_dataloader, music_transformer, video_transformer, device)}"
+        )
 
     current_timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     output_dir = Path("outputs", current_timestamp_str)
