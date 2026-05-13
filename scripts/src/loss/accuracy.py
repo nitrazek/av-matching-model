@@ -1,7 +1,5 @@
-
 import torch
 from torch.utils.data import DataLoader
-
 
 
 @torch.no_grad()
@@ -40,4 +38,4 @@ def get_accuracy(dataloader: DataLoader, music_transformer, video_transformer, d
     r1 = (sorted_indices[:, 0] == labels).float().mean().item()
     r5 = (sorted_indices[:, :5] == labels.unsqueeze(1)).any(dim=1).float().mean().item()
 
-    return {"R@1": r1, "R@5": r5}
+    return {"R_1": r1, "R_5": r5}

@@ -1,5 +1,5 @@
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 import torch
@@ -11,6 +11,7 @@ from src import dataset, loss, models
 from src import utils
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
+import mlflow
 
 
 @dataclass
@@ -128,35 +129,49 @@ def train(config: TrainConfig):
 
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
     losses_over_epochs = []
+    experiment_name = "Video Music Corelation 3s"
+    exp = mlflow.get_experiment_by_name(experiment_name)
 
-    for epoch in range(config.epochs):
-        avg_loss = train_one_epoch(
-            music_transformer=music_transformer,
-            video_transformer=video_transformer,
-            train_dataloader=train_dataloader,
-            optimizer=optimizer,
-            device=device,
-            epoch_idx=epoch,
-        )
-        losses_over_epochs.append(avg_loss)
-        scheduler.step()
-        print(
-            f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}, Accuracy on Validation: {loss.get_accuracy(val_dataloader, music_transformer, video_transformer, device)}"
-        )
+    if exp is None:
+        exp_id = mlflow.create_experiment(experiment_name)
+    else:
+        exp_id = exp.experiment_id
 
-    current_timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    output_dir = Path("outputs", current_timestamp_str)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        music_transformer.state_dict(),
-        output_dir / "music_transformer.pth",
-    )
-    torch.save(
-        video_transformer.state_dict(),
-        output_dir / "video_transformer.pth",
-    )
-    print(losses_over_epochs)
-    np.save(output_dir / "loss.npy", np.array(losses_over_epochs))
+    with mlflow.start_run(experiment_id=exp_id):
+        mlflow.log_params(asdict(config))
+
+        for epoch in range(config.epochs):
+            avg_loss = train_one_epoch(
+                music_transformer=music_transformer,
+                video_transformer=video_transformer,
+                train_dataloader=train_dataloader,
+                optimizer=optimizer,
+                device=device,
+                epoch_idx=epoch,
+            )
+            losses_over_epochs.append(avg_loss)
+            scheduler.step()
+            accuracy = loss.get_accuracy(
+                val_dataloader, music_transformer, video_transformer, device
+            )
+            print(
+                f"Epoch {epoch+1}/{config.epochs}, Loss: {avg_loss:.4f}, Accuracy on Validation: {accuracy}"
+            )
+            mlflow.log_metric("loss", avg_loss, step=epoch)
+            mlflow.log_metrics({f"val_{k}": v for k, v in accuracy.items()}, step=epoch)
+
+        current_timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        output_dir = Path("outputs", current_timestamp_str)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            music_transformer.state_dict(),
+            output_dir / "music_transformer.pth",
+        )
+        torch.save(
+            video_transformer.state_dict(),
+            output_dir / "video_transformer.pth",
+        )
+        np.save(output_dir / "loss.npy", np.array(losses_over_epochs))
 
 
 if __name__ == "__main__":
