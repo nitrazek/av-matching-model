@@ -12,14 +12,18 @@ from src import utils
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import mlflow
+import json
 
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 20
-    epochs: int = 40
-    lr: float = 3e-4
+    batch_size: int = 40
+    epochs: int = 20
+    lr: float = 2e-4
+    lr_decay: float = 0.95
     segment_length: float = 5
+    music_trnasformer_size: int = 4
+    video_trnasformer_size: int = 4
 
 
 def train_one_epoch(
@@ -94,12 +98,12 @@ def train(config: TrainConfig):
     print(f"Detected device: {device}")
 
     embed_dim = 512
-    music_transformer = models.MusicTransformer(num_layers=4, query_dim=embed_dim).to(
-        device
-    )
-    video_transformer = models.VideoTransformer(num_layers=4, query_dim=embed_dim).to(
-        device
-    )
+    music_transformer = models.MusicTransformer(
+        num_layers=config.music_trnasformer_size, query_dim=embed_dim
+    ).to(device)
+    video_transformer = models.VideoTransformer(
+        num_layers=config.video_trnasformer_size, query_dim=embed_dim
+    ).to(device)
     train_dataset = dataset.EncodedMusicVideoDataset(
         path_to_dataset=Path("data", "splits", "train")
     )
@@ -127,7 +131,7 @@ def train(config: TrainConfig):
         weight_decay=0.01,
     )
 
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.lr_decay)
     losses_over_epochs = []
     experiment_name = "Video Music Corelation 3s"
     exp = mlflow.get_experiment_by_name(experiment_name)
@@ -137,7 +141,7 @@ def train(config: TrainConfig):
     else:
         exp_id = exp.experiment_id
 
-    with mlflow.start_run(experiment_id=exp_id):
+    with mlflow.start_run(experiment_id=exp_id) as run:
         mlflow.log_params(asdict(config))
 
         for epoch in range(config.epochs):
@@ -161,7 +165,7 @@ def train(config: TrainConfig):
             mlflow.log_metrics({f"val_{k}": v for k, v in accuracy.items()}, step=epoch)
 
         current_timestamp_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        output_dir = Path("outputs", current_timestamp_str)
+        output_dir = Path("outputs", current_timestamp_str + " " + run.info.run_name)
         output_dir.mkdir(parents=True, exist_ok=True)
         torch.save(
             music_transformer.state_dict(),
@@ -171,7 +175,11 @@ def train(config: TrainConfig):
             video_transformer.state_dict(),
             output_dir / "video_transformer.pth",
         )
-        np.save(output_dir / "loss.npy", np.array(losses_over_epochs))
+        with open(output_dir / "output.json", "w") as conf_file:
+            json.dump(
+                {**asdict(config), "accuracy": accuracy, "loss": losses_over_epochs},
+                conf_file,
+            )
 
 
 if __name__ == "__main__":
