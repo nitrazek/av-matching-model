@@ -28,7 +28,13 @@ def dummy_batch():
 
 def test_positional_encoding_logic():
     seq_len, dim, batch = 5, 16, 1
-    pos_enc = EmbeddingWithProjection.create_positional_encoding(seq_len, dim, batch)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pos_enc = EmbeddingWithProjection.create_positional_encoding(
+        seq_count=seq_len,
+        embedding_dimensions=dim,
+        batch_size=batch,
+        device=device
+    )
 
     assert pos_enc.shape == (batch, seq_len, dim)
     # Check if sine/cosine pattern exists (sin(0) should be 0)
@@ -108,12 +114,12 @@ def test_video_converter_mock(mock_clip_load):
 @patch("transformers.AutoProcessor.from_pretrained")
 def test_music_converter_segmentation(mock_proc, mock_model):
     # Testing the static-like segmentation logic
-    converter = MusicConverter
+    converter = MusicConverter()
     audio = torch.randn(1000)
     sr = 100
     seg_len = 2.0  # 200 samples per segment
 
-    segments = MusicConverter.segment_audio(audio, sr, seg_len)
+    segments = converter(audio, sr, seg_len)
 
     assert len(segments) == 5  # 1000 / 200
     assert len(segments[0]) == 200

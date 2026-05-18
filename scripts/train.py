@@ -7,8 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src import dataset, loss, models
-from src import utils
+from src import dataset, loss, models, utils
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import mlflow
@@ -17,13 +16,16 @@ import json
 
 @dataclass
 class TrainConfig:
+    train_dataset: str = "data/processed/train"
+    val_dataset: str = "data/processed/val"
+    experiment_name: str = "Video Music Corelation 3s"
     batch_size: int = 40
     epochs: int = 20
     lr: float = 2e-4
     lr_decay: float = 0.95
     segment_length: float = 5
-    music_trnasformer_size: int = 4
-    video_trnasformer_size: int = 4
+    music_transformer_size: int = 4
+    video_transformer_size: int = 4
 
 
 def train_one_epoch(
@@ -99,17 +101,13 @@ def train(config: TrainConfig):
 
     embed_dim = 512
     music_transformer = models.MusicTransformer(
-        num_layers=config.music_trnasformer_size, query_dim=embed_dim
+        num_layers=config.music_transformer_size, query_dim=embed_dim
     ).to(device)
     video_transformer = models.VideoTransformer(
-        num_layers=config.video_trnasformer_size, query_dim=embed_dim
+        num_layers=config.video_transformer_size, query_dim=embed_dim
     ).to(device)
-    train_dataset = dataset.EncodedMusicVideoDataset(
-        path_to_dataset=Path("data", "splits", "train")
-    )
-    val_dataset = dataset.EncodedMusicVideoDataset(
-        path_to_dataset=Path("data", "splits", "val")
-    )
+    train_dataset = dataset.EncodedMusicVideoDataset(config.train_dataset)
+    val_dataset = dataset.EncodedMusicVideoDataset(config.val_dataset)
 
     val_dataloader = DataLoader(
         dataset=val_dataset,
@@ -133,11 +131,10 @@ def train(config: TrainConfig):
 
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.lr_decay)
     losses_over_epochs = []
-    experiment_name = "Video Music Corelation 3s"
-    exp = mlflow.get_experiment_by_name(experiment_name)
 
+    exp = mlflow.get_experiment_by_name(config.experiment_name)
     if exp is None:
-        exp_id = mlflow.create_experiment(experiment_name)
+        exp_id = mlflow.create_experiment(config.experiment_name)
     else:
         exp_id = exp.experiment_id
 

@@ -8,3 +8,6 @@ data/
 *.db
 mlruns/
 *.json
+.pytest_cache/
+**/__pycache__/
+outputs/
