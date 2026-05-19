@@ -4,11 +4,16 @@ import argparse
 import json
 import random
 import shutil
-import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import glob
 from src import models
+from src.utils import (
+    ensure_ffmpeg_tools_available,
+    probe_duration,
+    split_audio_into_segments,
+    split_video_into_segments,
+)
 import torch
 import torchvision.io as v_io
 from tqdm import tqdm
@@ -129,16 +134,6 @@ def initialize_raw_directories(raw_video_dir: Path, raw_audio_dir: Path) -> None
     raw_audio_dir.mkdir(parents=True, exist_ok=True)
 
 
-def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
-    try:
-        return subprocess.run(command, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as error:
-        stderr = error.stderr.strip()
-        stdout = error.stdout.strip()
-        details = stderr or stdout or "No subprocess output captured."
-        raise RuntimeError(f"Command failed: {' '.join(command)}\n{details}") from error
-
-
 def discover_media_files(root_dir: Path, extensions: set[str]) -> dict[str, Path]:
     if not root_dir.exists():
         raise FileNotFoundError(f"Directory does not exist: {root_dir}")
@@ -204,36 +199,6 @@ def split_pairs(
     }
 
 
-def probe_duration(path: Path) -> float:
-    command = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "json",
-        str(path),
-    ]
-    result = run_command(command)
-    payload = json.loads(result.stdout)
-    duration = float(payload["format"]["duration"])
-    if duration <= 0:
-        raise ValueError(f"Invalid media duration for {path}: {duration}")
-    return duration
-
-
-def build_segment_starts(
-    available_duration: float,
-    segment_length: float,
-) -> list[float]:
-    if segment_length <= 0 or available_duration < segment_length:
-        return []
-
-    segment_count = int(available_duration // segment_length)
-    return [index * segment_length for index in range(segment_count)]
-
-
 def reset_output_dir(output_dir: Path, overwrite: bool) -> None:
     if output_dir.exists():
         if overwrite:
@@ -249,63 +214,6 @@ def reset_output_dir(output_dir: Path, overwrite: bool) -> None:
     for split in ("train", "val"):
         (output_dir / split / "videos").mkdir(parents=True, exist_ok=True)
         (output_dir / split / "audio").mkdir(parents=True, exist_ok=True)
-
-
-def export_video_segment(
-    source_path: Path, destination_path: Path, start_time: float, duration: float
-) -> None:
-    command = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        f"{start_time:.3f}",
-        "-i",
-        str(source_path),
-        "-t",
-        f"{duration:.3f}",
-        "-an",
-        "-map",
-        "0:v:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "18",
-        "-pix_fmt",
-        "yuv420p",
-        str(destination_path),
-    ]
-    run_command(command)
-
-
-def export_audio_segment(
-    source_path: Path,
-    destination_path: Path,
-    start_time: float,
-    duration: float,
-    sample_rate: int,
-    channels: int,
-) -> None:
-    command = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        f"{start_time:.3f}",
-        "-i",
-        str(source_path),
-        "-t",
-        f"{duration:.3f}",
-        "-vn",
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        str(sample_rate),
-        "-ac",
-        str(channels),
-        str(destination_path),
-    ]
-    run_command(command)
 
 
 def prepare_split(
@@ -325,38 +233,36 @@ def prepare_split(
         audio_duration = probe_duration(pair.audio_path)
         available_duration = min(video_duration, audio_duration)
 
-        segment_starts = build_segment_starts(
-            available_duration=available_duration,
+        video_segments = split_video_into_segments(
+            source_path=pair.video_path,
+            output_dir=video_dir,
             segment_length=segment_length,
+            name_prefix=pair.pair_key,
+            available_duration=available_duration,
+        )
+        audio_segments = split_audio_into_segments(
+            source_path=pair.audio_path,
+            output_dir=audio_dir,
+            segment_length=segment_length,
+            sample_rate=sample_rate,
+            channels=channels,
+            name_prefix=pair.pair_key,
+            available_duration=available_duration,
         )
 
-        if not segment_starts:
+        if not video_segments:
             print(
                 f"Skipping pair '{pair.pair_key}' because the shared duration "
                 f"({available_duration:.2f}s) is shorter than segment length ({segment_length:.2f}s)."
             )
             continue
 
-        for segment_index, start_time in enumerate(segment_starts):
+        for segment_index, (prepared_video_path, prepared_audio_path) in enumerate(
+            zip(video_segments, audio_segments)
+        ):
             sample_id = f"{pair.pair_key}_{segment_index:03d}"
-            prepared_video_path = video_dir / f"{sample_id}.mp4"
-            prepared_audio_path = audio_dir / f"{sample_id}.wav"
+            start_time = segment_index * segment_length
             end_time = start_time + segment_length
-
-            export_video_segment(
-                source_path=pair.video_path,
-                destination_path=prepared_video_path,
-                start_time=start_time,
-                duration=segment_length,
-            )
-            export_audio_segment(
-                source_path=pair.audio_path,
-                destination_path=prepared_audio_path,
-                start_time=start_time,
-                duration=segment_length,
-                sample_rate=sample_rate,
-                channels=channels,
-            )
 
             samples.append(
                 PreparedSample(
