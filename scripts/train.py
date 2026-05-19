@@ -7,11 +7,11 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src import dataset, loss, models, utils
 from torch.nn.utils.rnn import pad_sequence
-import numpy as np
 import mlflow
 import json
+
+from src import dataset, loss, models, utils
 
 
 @dataclass

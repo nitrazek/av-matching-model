@@ -10,28 +10,21 @@ import torchaudio
 class MusicVideoDataset(data.Dataset):
     def __init__(self, path_to_dataset: Path) -> None:
         super().__init__()
-        # path_to_dataset_description = glob.glob(
-        #     str(path_to_dataset / "**V2M-bench.txt")
-        # )
 
         self._dataset_path = Path(path_to_dataset)
         description_files = glob.glob(
             str(self._dataset_path / "**V2M-bench.txt"), recursive=True
         )
         if not description_files:
-            raise FileNotFoundError("Nie znaleziono pliku opisu V2M-bench.txt")
+            raise FileNotFoundError("File 'V2M-bench.txt' not found")
 
         with open(description_files[0]) as f:
-            # Filtrujemy puste linie, aby uniknąć błędów
             file_ids = [line.strip() for line in f.read().split("\n") if line.strip()]
 
         self._samples = []
-        print(f"Indeksowanie {len(file_ids)} próbek...")
+        print(f"Indexing {len(file_ids)} samples...")
 
-        # Szybsze podejście: pobieramy listę wszystkich plików raz, zamiast globować każdy ID osobno
-        # Jeśli dataset jest ogromny, można wrócić do glob.glob(f"**/{id}*") w pętli
         for file_id in file_ids:
-            # Szukamy plików powiązanych z ID w strukturze katalogów
             pattern = str(self._dataset_path / f"**/{file_id}*.*")
             found_paths = glob.glob(pattern, recursive=True)
 
@@ -65,13 +58,6 @@ class MusicVideoDataset(data.Dataset):
         return len(self._samples)
 
     def __getitem__(self, index) -> Any:
-        # file_to_open = self._files_in_dataset[index]
-        # if file_to_open not in self._opened_files:
-        #     files_to_open = glob.glob(
-        #         str(self._dataset_path / f"**/{file_to_open}*.*"), recursive=True
-        #     )
-        #     self._opened_files[file_to_open] = files_to_open
-
         sample = self._samples[index]
         video_data = self._load_video(files_to_load=sample["video_paths"][:1])
         audio_data = self._load_audio(files_to_load=sample["audio_paths"][:1])
@@ -82,23 +68,20 @@ class MusicVideoDataset(data.Dataset):
 class EncodedMusicVideoDataset(data.Dataset):
     def __init__(self, path_to_dataset: Path) -> None:
         super().__init__()
-        # path_to_dataset_description = glob.glob(
-        #     str(path_to_dataset / "**V2M-bench.txt")
-        # )
 
         self._dataset_path = Path(path_to_dataset)
         description_files = glob.glob(
             str(self._dataset_path / "**V2M-bench.txt"), recursive=True
         )
         if not description_files:
-            raise FileNotFoundError("Nie znaleziono pliku opisu V2M-bench.txt")
+            raise FileNotFoundError("File 'V2M-bench.txt' not found.")
 
         with open(description_files[0]) as f:
             # Filtrujemy puste linie, aby uniknąć błędów
             file_ids = [line.strip() for line in f.read().split("\n") if line.strip()]
 
         self._samples = []
-        print(f"Indeksowanie {len(file_ids)} próbek...")
+        print(f"Indexing {len(file_ids)} samples...")
         for file_id in file_ids:
             pattern = str(self._dataset_path / f"**/{file_id}*.*")
             found_paths = glob.glob(pattern, recursive=True)
