@@ -120,15 +120,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("audio_channels must be greater than 0.")
 
 
-def ensure_ffmpeg_tools_available() -> None:
-    missing_tools = [
-        tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None
-    ]
-    if missing_tools:
-        joined = ", ".join(missing_tools)
-        raise RuntimeError(f"Missing required system tools: {joined}.")
-
-
 def initialize_raw_directories(raw_video_dir: Path, raw_audio_dir: Path) -> None:
     raw_video_dir.mkdir(parents=True, exist_ok=True)
     raw_audio_dir.mkdir(parents=True, exist_ok=True)
