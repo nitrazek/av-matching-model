@@ -200,3 +200,34 @@ def split_audio_into_segments(
         )
         produced.append(destination)
     return produced
+
+
+def concat_segments(segment_paths: list[Path], output_path: Path) -> None:
+    """Losslessly concatenate same-codec segments via the ffmpeg concat demuxer."""
+    output_path = Path(output_path)
+    list_file = output_path.with_suffix(output_path.suffix + ".concat.txt")
+    with list_file.open("w", encoding="utf-8") as f:
+        for segment_path in segment_paths:
+            escaped = str(Path(segment_path).resolve()).replace("\\", "/").replace("'", "'\\''")
+            f.write(f"file '{escaped}'\n")
+    try:
+        run_command(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+             "-c", "copy", str(output_path)]
+        )
+    finally:
+        list_file.unlink(missing_ok=True)
+
+
+def mux_video_with_audio(
+    video_path: Path,
+    audio_path: Path,
+    output_path: Path,
+    max_duration: float,
+) -> None:
+    """Mux a video stream and audio stream into one MP4 file, trimmed to max_duration."""
+    run_command(
+        ["ffmpeg", "-y", "-i", str(video_path), "-i", str(audio_path),
+         "-map", "0:v:0", "-map", "1:a:0", "-t", f"{max_duration:.3f}",
+         "-c:v", "copy", "-c:a", "aac", "-shortest", str(output_path)]
+    )
