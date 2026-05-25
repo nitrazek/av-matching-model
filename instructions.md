@@ -59,8 +59,8 @@ Przykład:
 python cli.py video2music \
     --video ./data/raw/videos/video.mp4 \
     --music-db ./data/raw/audio \
-    --segment-length 5 \
-    --output ./outputs/vlog_scored.mp4
+    --segment-length 3 \
+    --output ./outputs/music_video.mp4
 ```
 
 2. music2video
@@ -74,8 +74,8 @@ python cli.py music2video --music <path_to_audio> --video-db <path_to_video_fold
 Przykład:
 ```powershell
 python cli.py music2video \
-    --music ./inputs/beat_track.wav \
-    --video-db ./assets/b-roll_library \
+    --music ./data/raw/audio/music.wav \
+    --video-db ./data/raw/videos \
     --segment-length 3 \
     --output ./outputs/music_video.mp4
 ```
